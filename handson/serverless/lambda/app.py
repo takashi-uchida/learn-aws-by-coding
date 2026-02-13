@@ -26,7 +26,7 @@ class SimpleLambda(Stack):
         # <2>
         handler = _lambda.Function(
             self, 'LambdaHandler',
-            runtime=_lambda.Runtime.PYTHON_3_7,
+            runtime=_lambda.Runtime.PYTHON_3_12,
             handler="index.handler",
             code=_lambda.Code.from_inline(FUNC),
             memory_size=128,

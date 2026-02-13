@@ -33,12 +33,25 @@ class Bashoutter(Stack):
             self, "Bashoutter-Bucket",
             website_index_document="index.html",
             public_read_access=True,
+            block_public_access=s3.BlockPublicAccess(
+                block_public_acls=False,
+                block_public_policy=False,
+                ignore_public_acls=False,
+                restrict_public_buckets=False,
+            ),
             auto_delete_objects=True,
             removal_policy=cdk.RemovalPolicy.DESTROY
         )
 
+        # Deploy frontend files to S3
+        s3_deploy.BucketDeployment(
+            self, "BashoutterWebsite",
+            sources=[s3_deploy.Source.asset("./gui/dist")],
+            destination_bucket=bucket,
+        )
+
         common_params = {
-            "runtime": _lambda.Runtime.PYTHON_3_7,
+            "runtime": _lambda.Runtime.PYTHON_3_12,
             "environment": {
                 "TABLE_NAME": table.table_name
             }
