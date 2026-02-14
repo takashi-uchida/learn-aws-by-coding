@@ -69,7 +69,7 @@ $ aws --version
 ```sh
 $ uv python install 3.12.10
 $ uv python pin 3.12.10
-$ python --version
+$ uv run python --version
 ```
 
 ## プロジェクト共通の実行手順
