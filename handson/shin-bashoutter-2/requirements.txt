@@ -1,0 +1,5 @@
+aws-cdk-lib
+constructs
+boto3
+requests
+httpie
