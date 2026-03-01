@@ -3,20 +3,25 @@ import aws_cdk as cdk
 from aws_cdk import (
     Stack,
     aws_dynamodb as ddb,
-    aws_s3 as s3,
-    aws_s3_deployment as s3_deploy,
     aws_lambda as _lambda,
     aws_ssm as ssm,
     aws_apigateway as apigw,
+    aws_certificatemanager as acm,
+    aws_route53 as route53,
+    aws_route53_targets as route53_targets,
 )
-import os
+from dataclasses import dataclass
 
-class Bashoutter(Stack):
+@dataclass
+class ApiStackPrpos:
+    domain_name: str
+    certificate_arn: str
 
-    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+class ApiStack(Stack):
+
+    def __init__(self, scope: Construct, construct_id: str, props: ApiStackPrpos, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # <1>
         # dynamoDB table to store haiku
         table = ddb.Table(
             self, "Bashoutter-Table",
@@ -28,28 +33,6 @@ class Bashoutter(Stack):
             removal_policy=cdk.RemovalPolicy.DESTROY
         )
 
-        # <2>
-        bucket = s3.Bucket(
-            self, "Bashoutter-Bucket",
-            website_index_document="index.html",
-            public_read_access=True,
-            block_public_access=s3.BlockPublicAccess(
-                block_public_acls=False,
-                block_public_policy=False,
-                ignore_public_acls=False,
-                restrict_public_buckets=False,
-            ),
-            auto_delete_objects=True,
-            removal_policy=cdk.RemovalPolicy.DESTROY
-        )
-
-        # Deploy frontend files to S3
-        s3_deploy.BucketDeployment(
-            self, "BashoutterWebsite",
-            sources=[s3_deploy.Source.asset("./gui/dist")],
-            destination_bucket=bucket,
-        )
-
         common_params = {
             "runtime": _lambda.Runtime.PYTHON_3_12,
             "environment": {
@@ -57,7 +40,6 @@ class Bashoutter(Stack):
             }
         }
 
-        # <3>
         # define Lambda functions
         get_haiku_lambda = _lambda.Function(
             self, "GetHaiku",
@@ -86,20 +68,42 @@ class Bashoutter(Stack):
             **common_params,
         )
 
-        # <4>
         # grant permissions
         table.grant_read_data(get_haiku_lambda)
         table.grant_read_write_data(post_haiku_lambda)
         table.grant_read_write_data(patch_haiku_lambda)
         table.grant_read_write_data(delete_haiku_lambda)
 
-        # <5>
         # define API Gateway
         api = apigw.RestApi(
             self, "BashoutterApi",
             default_cors_preflight_options=apigw.CorsOptions(
                 allow_origins=apigw.Cors.ALL_ORIGINS,
                 allow_methods=apigw.Cors.ALL_METHODS,
+            ),
+        )
+
+        certificate = acm.Certificate.from_certificate_arn(
+            self, "ACMCertificate", props.certificate_arn
+        )
+
+        domain = apigw.DomainName(
+            self, "domain",
+            domain_name="api." + props.domain_name,
+            certificate=certificate,
+            endpoint_type=apigw.EndpointType.EDGE,
+        )
+        domain.add_base_path_mapping(api)
+
+        # create A record in Route 53
+        route53.ARecord(
+            self, "AliasRecord",
+            zone=route53.HostedZone.from_lookup(
+                self, 'zone', domain_name=props.domain_name,
+            ),
+            record_name="api." + props.domain_name,
+            target=route53.RecordTarget.from_alias(
+                route53_targets.ApiGatewayDomain(domain)
             )
         )
 
@@ -134,17 +138,3 @@ class Bashoutter(Stack):
             parameter_name="ENDPOINT_URL",
             string_value=api.url
         )
-
-        # Output parameters
-        cdk.CfnOutput(self, 'BucketUrl', value=bucket.bucket_website_domain_name)
-
-app = cdk.App()
-Bashoutter(
-    app, "Bashoutter",
-    env={
-        "region": os.environ["CDK_DEFAULT_REGION"],
-        "account": os.environ["CDK_DEFAULT_ACCOUNT"],
-    }
-)
-
-app.synth()
